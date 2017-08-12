@@ -10,6 +10,7 @@
 #import <SpriteKit/SpriteKit.h>
 #import "JMScrollNode.h"
 #import "JMBoard.h"
+#import "SKNode+JMHitTesting.h"
 
 @interface ViewController () <JMScrollNodeDelegate>
 @property (nonatomic, weak) IBOutlet SKView *sceneView;
@@ -41,6 +42,19 @@
     
     // Create ScrollNode
     JMScrollNode *scrollNode = [[JMScrollNode alloc] initWithView:view content:board];
+    
+    // We added hitTesting to enable different gestureRecognizers to work together-
+    // To distinguish wich node should receive a touch, we added the userInteraction level,
+    // where nodes with a higher level will receive a touch before nodes with a lower level.
+    // This should be combined with the drawing order in future releases.
+    // If this doesn't work with your project, please adjust
+    // the gestureRecognizerDelegate in JMScrollNode
+    [scrollNode setUserInteractionLevel:0];
+    
+    // Enable Zooming
+    [scrollNode setMinZoom:0.6];
+    [scrollNode setMaxZoom:2.0];
+    
     [scene addChild:scrollNode];
     [scrollNode setDelegate:self];
 }

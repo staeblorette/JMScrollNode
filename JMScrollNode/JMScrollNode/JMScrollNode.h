@@ -1,9 +1,9 @@
 //
-//  JMScrollNode.h
-//  JMGomuko
+//  JMScrollNode.m
+//  JMScrollNode
 //
-//  Created by Martin S. on 20/04/2017.
-//  Copyright © 2017 Martin. All rights reserved.
+//  Created by Martin Stähler. on 20/04/2017.
+//  Copyright © 2017 Martin Stähler. All rights reserved.
 //
 
 #import <SpriteKit/SpriteKit.h>
@@ -43,7 +43,7 @@ NS_ASSUME_NONNULL_BEGIN
 @end
 
 // Informal scroll Node accessibility delegate
-// TODO: Needs to be implemented
+// TODO:<Martin S.> 20.4.17 Needs to be implemented
 @protocol JMScrollNodeAccessibilityDelegate <JMScrollNodeDelegate>
 
 - (NSString *)accessibilityScrollStatusForScrollNode:(JMScrollNode *)scrollNode;
@@ -71,9 +71,18 @@ NS_ASSUME_NONNULL_BEGIN
 
 - (void)setContentOffset:(CGPoint)contentOffset animated:(BOOL)animated;
 
-#pragma mark - 
+#pragma mark - Zooming
 
-/** 
+@property (nonatomic, readwrite, assign) CGFloat maxZoom;
+@property (nonatomic, readwrite, assign) CGFloat minZoom;
+
+@property (nonatomic, readwrite, assign) CGFloat zoom;
+
+- (void)setZoom:(CGFloat)zoom animated:(BOOL)animated;
+
+#pragma mark - Content Reveal
+
+/**
  If the point (in the coordinates of the node) is at the edge of the visible area, depending on the distance to the edge,
  the scroll view moves to reveal this content.
  */

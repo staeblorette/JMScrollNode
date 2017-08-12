@@ -1,20 +1,22 @@
 //
 //  JMScrollNode.m
-//  JMGomuko
+//  JMScrollNode
 //
-//  Created by Martin S. on 20/04/2017.
-//  Copyright © 2017 Martin. All rights reserved.
+//  Created by Martin Stähler. on 20/04/2017.
+//  Copyright © 2017 Martin Stähler. All rights reserved.
 //
 
 #import "JMScrollNode.h"
 #import "UIGestureRecognizer+JMAddition.h"
 #import "SKNode+JMActionAnimation.h"
+#import "SKNode+JMHitTesting.h"
 
 @interface JMScrollNode () <UIGestureRecognizerDelegate>
 @property (nonatomic, weak) UIView *view;
 @property (nonatomic, weak) SKNode <JMScrollNodeContent> *content;
 
 @property (nonatomic, weak) UIPanGestureRecognizer *panGestureRecognizer;
+@property (nonatomic, weak) UIPinchGestureRecognizer *pinchGestureRecognizer;
 
 @property (nonatomic, assign) CGPoint contentPositionStart;
 @property (nonatomic, assign) CGPoint previousTranslation;
@@ -22,6 +24,9 @@
 @property (nonatomic, assign) CGFloat maxHorizontalTranslationRight;
 @property (nonatomic, assign) CGFloat maxVerticalTranslationTop;
 @property (nonatomic, assign) CGFloat maxVerticalTranslationBottom;
+
+@property (nonatomic, assign) CGFloat contentScaleStart;
+@property (nonatomic, assign) CGFloat contentScale;
 
 @property (nonatomic, weak) SKAction *runningAction;
 
@@ -42,6 +47,9 @@
 {
     self = [super init];
     if (self) {
+        _maxZoom = 1.0f;
+        _minZoom = 1.0f;
+        _zoom = 1.0f;
         _view = view;
         _content = content;
         [self addChild:content];
@@ -51,33 +59,99 @@
     return self;
 }
 
-#pragma mark - GestureRecognizer
+#pragma mark - GestureRecognizers
 
 - (void)createGestureRecognizer
 {
     UIPanGestureRecognizer *panGestureRecognizer = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(didPan:)];
     [panGestureRecognizer setDelegate:self];
+    [panGestureRecognizer setCancelsTouchesInView:NO];
     [[self view] addGestureRecognizer:panGestureRecognizer];
     [self setPanGestureRecognizer:panGestureRecognizer];
+    
+    UIPinchGestureRecognizer *pinchGestureRecognizer = [[UIPinchGestureRecognizer alloc] initWithTarget:self action:@selector(didPinch:)];
+    [pinchGestureRecognizer setDelegate:self];
+    [pinchGestureRecognizer setDelaysTouchesBegan:YES];
+    [pinchGestureRecognizer setCancelsTouchesInView:NO];
+    [[self view] addGestureRecognizer:pinchGestureRecognizer];
+    [self setPinchGestureRecognizer:pinchGestureRecognizer];
 }
+
+#pragma mark - Zooming
+
+- (void)didPinch:(UIPinchGestureRecognizer *)gestureRecognizer
+{
+    if (gestureRecognizer.state == UIGestureRecognizerStateBegan) {
+        // We will always use xScale
+        [self setContentScaleStart:[[self content] xScale]];
+        [self setContentPositionStart:[[self content] position]];
+    }
+    
+    CGFloat newScale = [self contentScaleStart] * [gestureRecognizer scale];
+    if (newScale > [self maxZoom])
+        return;
+    if (newScale < [self minZoom])
+        return;
+    
+    if (gestureRecognizer.state == UIGestureRecognizerStateChanged) {
+        [self setZoom:newScale];
+        [self calculateMaxBounceTranslation];
+        
+        CGPoint adjustment = [self calculateTranslationFromTranslation:CGPointZero];
+        CGPoint contentPosition = [self contentPositionStart];
+        contentPosition.x += adjustment.x;
+        contentPosition.y += adjustment.y;
+        
+        self.contentPositionStart = contentPosition;
+        CGPoint position = CGPointMake(self.contentPositionStart.x * gestureRecognizer.scale, self.contentPositionStart.y * gestureRecognizer.scale);
+        
+        [[self content] setPosition:position];
+    }
+}
+
+- (void)setZoom:(CGFloat)zoom
+{
+    [self setZoom:zoom animated:NO];
+}
+
+static NSTimeInterval const JMScrollNodeZoomAnimationDuration = 0.2f;
+static NSString *     const JMScrollNodeZoomAnimationKey = @"JMScrollNodeZoomAnimationKey";
+- (void)setZoom:(CGFloat)zoom animated:(BOOL)animated
+{
+    _zoom = zoom;
+    if (animated) {
+        [SKNode animateWithDuration:JMScrollNodeZoomAnimationDuration
+                         animations:^{
+                             SKAction *action = [SKAction scaleTo:zoom
+                                                         duration:JMScrollNodeAnimationDuration];
+                             [action setTimingFunction:^(float x){return sqrtf(x);}];
+                             [[self content] animateAction:action forKey:JMScrollNodeZoomAnimationKey];}
+         ];
+    } else {
+        [[self content] removeActionForKey:JMScrollNodeZoomAnimationKey];
+        [[self content] setScale:zoom];
+    }
+}
+
+
+#pragma mark - Panning
 
 static NSTimeInterval const JMScrollNodeBounceRelaxTime = 0.2f;
 - (void)didPan:(UIPanGestureRecognizer *)gestureRecognizer
 {
-
-    CGPoint translation = [self calculateTranslationFromTranslation:[[self panGestureRecognizer] translationInNode:self]];
-    CGPoint velocity = CGPointZero;
-
     if (gestureRecognizer.state == UIGestureRecognizerStateBegan) {
         [self scrollNodeWillBeginDragging];
 
         [self setContentPositionStart:[[self content] position]];
         [self setContentOffset:[[self content] position]];
         [self calculateMaxBounceTranslation];
+        return;
     }
+    CGPoint translation = [self calculateTranslationFromTranslation:[[self panGestureRecognizer] translationInNode:self]];
+    CGPoint velocity = CGPointZero;
     
     NSTimeInterval decelerationDuration = 0;
-    if (gestureRecognizer.state == UIGestureRecognizerStateEnded || gestureRecognizer.state == UIGestureRecognizerStateCancelled) {
+    if (gestureRecognizer.state == UIGestureRecognizerStateEnded) {
         // Calculate translations to move back to on end.
         BOOL outsideBounds = NO;
         velocity = [[self panGestureRecognizer] velocityInNode:self];
@@ -107,12 +181,16 @@ static NSTimeInterval const JMScrollNodeBounceRelaxTime = 0.2f;
         }
     }
     
+    if (gestureRecognizer.state == UIGestureRecognizerStateCancelled) {
+        velocity = CGPointZero;
+    }
+    
     CGPoint newPosition = CGPointMake([self contentPositionStart].x + translation.x, [self contentPositionStart].y + translation.y);
     if (gestureRecognizer.state == UIGestureRecognizerStateChanged) {
         [self setContentOffset:newPosition animated:NO];
     }
     
-    if (gestureRecognizer.state == UIGestureRecognizerStateEnded || gestureRecognizer.state == UIGestureRecognizerStateCancelled) {
+    if (gestureRecognizer.state == UIGestureRecognizerStateEnded) {
         CGPoint endPosition = newPosition;
         
         [self scrollNodeWillEndDraggingWithVelocity:velocity targetContentOffset:&endPosition];
@@ -138,28 +216,35 @@ static NSTimeInterval const JMScrollNodeBounceRelaxTime = 0.2f;
 // This might be improved upon
 - (void)calculateMaxBounceTranslation
 {
+    // In Laymans term:
+    // We convert the top/bottom point of the UIView into the coordinates of the content.
+    // However this calculates with the zoom (which we don't want).
+    // What the transform in the content coordinate system does, is give the point of the screnn edges
+    // while incorporating the position of the content.
+    // The distance of the content (and hence the max translation) must be independent of the zoom.
+    // The contentSize is however depedependet on the zoom and shrinks with it.
+    // The maximum translation for each direction is then the contentSize * zoom - convertedPoint
     CGSize viewSize = self.view.bounds.size;
     CGSize contentSize = self.content.contentSize;
+    contentSize = CGSizeMake(contentSize.width * [self zoom], contentSize.height * [self zoom]);
     CGPoint leftView = CGPointZero;
     CGPoint rightView = CGPointMake(viewSize.width, viewSize.height);
-    // TODO: We might need to check if we need an additional conversion, or if the SKScene converts the whole UIView Tree
     CGPoint leftPoint = [self.scene convertPointFromView:leftView];
     leftPoint = [self.content convertPoint:leftPoint fromNode:self.scene];
     
     CGPoint rightPoint = [self.scene convertPointFromView:rightView];
     rightPoint = [self.content convertPoint:rightPoint fromNode:self.scene];
     
-    // TODO: Check if still correct in case anchorpoint is different
-    CGFloat maxXL =  contentSize.width / 2 + leftPoint.x;
+    CGFloat maxXL =  contentSize.width / 2  + leftPoint.x  * [self zoom];
     self.maxHorizontalTranslationLeft = maxXL;
     
-    CGFloat maxXR =  - contentSize.width / 2 + rightPoint.x;
+    CGFloat maxXR =  - contentSize.width / 2 + rightPoint.x  * [self zoom];
     self.maxHorizontalTranslationRight = maxXR;
-
-    CGFloat maxYL =  - contentSize.height / 2 + leftPoint.y;
+    
+    CGFloat maxYL =  - contentSize.height / 2 + leftPoint.y * [self zoom];
     self.maxVerticalTranslationTop = maxYL;
     
-    CGFloat maxYR = contentSize.height / 2 + rightPoint.y;
+    CGFloat maxYR = contentSize.height / 2 + rightPoint.y  * [self zoom];
     self.maxVerticalTranslationBottom = maxYR;
     
     if (contentSize.width < viewSize.width) {
@@ -213,6 +298,7 @@ static NSTimeInterval const JMScrollNodeAnimationDuration = 0.2f;
 static NSString *     const JMScrollNodeAnimationKey = @"JMScrollNodeAnimationKey";
 - (void)setContentOffset:(CGPoint)contentOffset animated:(BOOL)animated
 {
+    NSLog(@"%@", NSStringFromCGPoint(contentOffset));
     _contentOffset = contentOffset;
 
     if (animated) {
@@ -239,7 +325,19 @@ static NSString *     const JMScrollNodeAnimationKey = @"JMScrollNodeAnimationKe
 // Implement other UIGestureRecognizer if you need to finetune if the drag should begin
 - (BOOL)gestureRecognizer:(UIGestureRecognizer *)gestureRecognizer shouldRequireFailureOfGestureRecognizer:(nonnull UIGestureRecognizer *)otherGestureRecognizer
 {
+    if (otherGestureRecognizer != [self pinchGestureRecognizer] && otherGestureRecognizer != [self panGestureRecognizer]) {
+        return YES;
+    }
+    if (gestureRecognizer == [self pinchGestureRecognizer] || gestureRecognizer == [self panGestureRecognizer]) {
+        return NO;
+    }
     return YES;
+}
+
+- (BOOL)gestureRecognizer:(UIGestureRecognizer *)gestureRecognizer shouldReceiveTouch:(UITouch *)touch
+{
+    CGPoint touchLocation = [touch locationInNode:[self parent]];
+    return [self hitTest:touchLocation];
 }
 
 #pragma mark - Dynamics
@@ -272,10 +370,10 @@ static CGFloat const JMScrollNodeDecelartion = 18000;
  */
 - (CGFloat)bounceWithDropOff:(CGFloat)dropOff delta:(CGFloat)delta
 {
-    return (dropOff - dropOff * exp(-(delta) / dropOff));
+    return (dropOff - dropOff * exp(-(delta) / dropOff)) * [self zoom];
 }
 
-#pragma mark - ContentReveal
+#pragma mark - ConentReveal
 
 static CGFloat const JMScrollNodeContentRevealEdgeInset = 40;
 static CGFloat const JMScrollNodeContentRevealDropoff = 6.0;
@@ -309,7 +407,7 @@ static CGFloat const JMScrollNodeContentRevealDropoff = 6.0;
     [self setContentOffset:CGPointMake(translation.x + currentOffset.x,translation.y + currentOffset.y)];
 }
 
-#pragma mark - Delegate Notification
+#pragma mark - Delegate Notifcation
 
 - (void)scrollNodeDidScroll
 {

@@ -1,10 +1,11 @@
 //
 //  UIGestureRecognizer+JMAddition.h
-//  JMGomuko
+//  JMScrollNode
 //
-//  Created by Martin S. on 22/04/2017.
-//  Copyright © 2017 Martin. All rights reserved.
+//  Created by Martin Stähler. on 22/04/2017.
+//  Copyright © 2017 Martin Stähler. All rights reserved.
 //
+
 
 #import <SpriteKit/SpriteKit.h>
 #import <UIKit/UIKit.h>

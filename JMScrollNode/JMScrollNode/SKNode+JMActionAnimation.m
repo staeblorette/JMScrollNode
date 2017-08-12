@@ -1,9 +1,9 @@
 //
 //  SKNode+JMActionAnimation.m
-//  JMGomuko
+//  JMScrollNode
 //
-//  Created by Martin S. on 25/04/2017.
-//  Copyright © 2017 Martin. All rights reserved.
+//  Created by Martin Stähler. on 25/04/2017.
+//  Copyright © 2017 Martin Stähler. All rights reserved.
 //
 
 #import "SKNode+JMActionAnimation.h"
